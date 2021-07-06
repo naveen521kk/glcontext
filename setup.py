@@ -1,7 +1,12 @@
+import argparse
+import os
 import platform
+import subprocess
+import shlex
 import sys
 from setuptools import Extension, setup
 
+MIN_MESA_VERSION ='6.3'
 PLATFORMS = {'windows', 'linux', 'darwin'}
 
 target = platform.system().lower()
@@ -22,6 +27,29 @@ if target == 'darwin':
         python_target = LooseVersion(get_config_var('MACOSX_DEPLOYMENT_TARGET'))
         if python_target < '10.9' and current_system >= '10.9':
             os.environ['MACOSX_DEPLOYMENT_TARGET'] = '10.9'
+
+def find_osmesa():
+    pkg_config = os.getenv('PKGCONFIG','pkg-config')
+    _r = subprocess.run([pkg_config,'--version'], capture_output=True)
+    if _r.returncode != 0:
+        return False
+
+    # check whether osmesa exists in pkg-config
+    _r = subprocess.run([pkg_config,f'--atleast-version={MIN_MESA_VERSION}','osmesa'])
+    if _r.returncode != 0:
+        return False
+
+    # create a argparser for parsing the returns from
+    # pkgconfig
+    _parser = argparse.ArgumentParser(add_help=False)
+    _parser.add_argument("-I", dest="include_dirs", action="append")
+    _parser.add_argument("-L", dest="library_dirs", action="append")
+    _parser.add_argument("-l", dest="libraries", action="append")
+
+    _r = subprocess.run([pkg_config,'--libs','--cflags','osmesa'],capture_output=True)
+    _r.check_returncode()
+    args, _ = _parser.parse_known_args(shlex.split(_r.stdout.decode()))
+    return args.__dict__
 
 wgl = Extension(
     name='glcontext.wgl',
@@ -56,6 +84,16 @@ ext_modules = {
     'linux': [x11, egl],
     'darwin': [darwin],
 }
+
+build_mesa = find_osmesa()
+if build_mesa:
+    osmesa = Extension(
+        name='glcontext.osmesa',
+        sources=['glcontext/osmesa.cpp'],
+        extra_compile_args=['-fpermissive'] if 'GCC' in sys.version else [],
+        **build_mesa
+    )
+    ext_modules[target] += [osmesa]
 
 setup(
     name='glcontext',

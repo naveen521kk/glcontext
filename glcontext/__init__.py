@@ -47,6 +47,8 @@ def get_backend_by_name(name: str):
     """Request a specific backend by name"""
     if name == 'egl':
         return _egl()
+    elif name == 'osmesa':
+        return _osmesa()
 
     raise ValueError("Cannot find supported backend: '{}'".format(name))
 
@@ -60,6 +62,16 @@ def _wgl():
         _apply_env_var(kwargs, 'libgl', 'GLCONTEXT_WIN_LIBGL')
         kwargs = _strip_kwargs(kwargs, ['glversion', 'mode', 'libgl'])
         return wgl.create_context(**kwargs)
+
+    return create
+
+def _osmesa():
+    from glcontext import osmesa
+    def create(*args, **kwargs):
+        _apply_env_var(kwargs, 'format', 'GLCONTEXT_FORMAT')
+        kwargs = _strip_kwargs(kwargs, ['width', 'height', 'format'])
+        print(kwargs)
+        return osmesa.create_context(**kwargs)
 
     return create
 
