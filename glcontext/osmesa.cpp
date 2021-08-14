@@ -17,7 +17,7 @@ meth_create_context(PyObject* self, PyObject* args, PyObject* kwargs)
 {
     GLenum format;
     static char* keywords[] = { "width", "height", "format", NULL };
-    char* format_string = "RGBA";
+    char* format_string = "";
     int width = 0;
     int height = 0;
 
@@ -34,7 +34,7 @@ meth_create_context(PyObject* self, PyObject* args, PyObject* kwargs)
     res->width = width;
     res->height = height;
 
-    if (format_string = "COLOR_INDEX") {
+    if (format_string == "COLOR_INDEX") {
         format = OSMESA_COLOR_INDEX;
     } else if (format_string == "BGRA") {
         format = OSMESA_BGRA;
@@ -61,6 +61,11 @@ meth_create_context(PyObject* self, PyObject* args, PyObject* kwargs)
         PyErr_Format(PyExc_Exception, "OSMesaCreateContext failed");
         return NULL;
     }
+
+    if (!OSMesaMakeCurrent(res->ctx, res->buffer, GL_UNSIGNED_BYTE, res->width, res->height)) {
+        PyErr_Format(PyExc_Exception, "OSMesaMakeCurrent failed!");
+        return NULL;
+    }
     return res;
 }
 
@@ -79,10 +84,6 @@ GLContext_meth_load(GLContext* self, PyObject* arg)
 PyObject*
 GLContext_meth_enter(GLContext* self)
 {
-    if (!OSMesaMakeCurrent(self->ctx, self->buffer, GL_UNSIGNED_BYTE, self->width, self->height)) {
-        PyErr_Format(PyExc_Exception, "OSMesaMakeCurrent failed!");
-        return NULL;
-    }
     Py_RETURN_NONE;
 }
 
