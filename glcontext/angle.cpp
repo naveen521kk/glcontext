@@ -11,6 +11,12 @@
     #include <dlfcn.h>
 #endif
 
+#if defined(__cplusplus)
+#define EGL_CAST(type, value) (static_cast<type>(value))
+#else
+#define EGL_CAST(type, value) ((type) (value))
+#endif
+
 struct Display;
 
 typedef unsigned int EGLenum;
@@ -21,11 +27,13 @@ typedef void * EGLConfig;
 typedef void * EGLSurface;
 typedef void * EGLContext;
 typedef void * EGLDeviceEXT;
+typedef void * EGLDisplay;
+typedef intptr_t EGLAttrib;
 
 #define EGL_DEFAULT_DISPLAY 0
 #define EGL_NO_CONTEXT 0
 #define EGL_NO_SURFACE 0
-#define EGL_NO_DISPLAY 0
+#define EGL_NO_DISPLAY EGL_CAST(EGLDisplay, 0)
 #define EGL_PBUFFER_BIT 0x0001
 #define EGL_RENDERABLE_TYPE 0x3040
 #define EGL_NONE 0x3038
@@ -47,8 +55,11 @@ typedef void * EGLDeviceEXT;
 #define EGL_PLATFORM_DEVICE_EXT 0x313F
 #define EGL_PLATFORM_WAYLAND_EXT 0x31D8
 #define EGL_PLATFORM_X11_EXT 0x31D5
+#define EGL_EXTENSIONS 0x3055
+#define EGL_PLATFORM_ANGLE_ANGLE          0x3202
+#define EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE 0x320D
+#define EGL_OPENGL_ES_API                 0x30A0
 
-typedef void * EGLDisplay;
 typedef EGLint (* m_eglGetErrorProc)();
 typedef EGLDisplay (* m_eglGetDisplayProc)(EGLNativeDisplayType);
 typedef EGLBoolean (* m_eglInitializeProc)(EGLDisplay, EGLint *, EGLint *);
@@ -59,7 +70,8 @@ typedef EGLBoolean (* m_eglDestroyContextProc)(EGLDisplay, EGLContext);
 typedef EGLBoolean (* m_eglMakeCurrentProc)(EGLDisplay, EGLSurface, EGLSurface, EGLContext);
 typedef void (* (* m_eglGetProcAddressProc)(const char *))();
 typedef EGLBoolean (* m_eglQueryDevicesEXTProc)(EGLint, EGLDeviceEXT *, EGLint *);
-typedef EGLDisplay (* m_eglGetPlatformDisplayEXTProc) (EGLenum, void *, const EGLint *);
+typedef EGLDisplay (* m_eglGetPlatformDisplayProc) (EGLenum, void *, const EGLint *);
+typedef const char* (* m_eglQueryStringProc)(EGLDisplay, EGLint);
 
 struct GLContext {
     PyObject_HEAD
@@ -76,6 +88,7 @@ struct GLContext {
     EGLConfig cfg;
 
     int standalone;
+    char* extensionString;
 
     m_eglGetErrorProc m_eglGetError;
     m_eglGetDisplayProc m_eglGetDisplay;
@@ -87,7 +100,8 @@ struct GLContext {
     m_eglMakeCurrentProc m_eglMakeCurrent;
     m_eglGetProcAddressProc m_eglGetProcAddress;
     m_eglQueryDevicesEXTProc m_eglQueryDevicesEXT;
-    m_eglGetPlatformDisplayEXTProc m_eglGetPlatformDisplayEXT;
+    m_eglGetPlatformDisplayProc m_eglGetPlatformDisplay;
+    m_eglQueryStringProc m_eglQueryString;
 };
 
 PyTypeObject * GLContext_type;
@@ -173,6 +187,15 @@ GLContext * meth_create_context(PyObject * self, PyObject * args, PyObject * kwa
     }
 #endif
 
+    res->m_eglQueryString = (m_eglQueryStringProc)dlsym(res->libegl, "eglQueryString");
+    if (!res->m_eglGetError) {
+        PyErr_Format(PyExc_Exception, "eglQueryString not found");
+        return NULL;
+    }
+
+    const char *extensionString =
+        (const char *)(res->m_eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS));
+
     res->m_eglGetError = (m_eglGetErrorProc)dlsym(res->libegl, "eglGetError");
     if (!res->m_eglGetError) {
         PyErr_Format(PyExc_Exception, "eglGetError not found");
@@ -227,43 +250,29 @@ GLContext * meth_create_context(PyObject * self, PyObject * args, PyObject * kwa
         return NULL;
     }
 
-    res->m_eglQueryDevicesEXT = (m_eglQueryDevicesEXTProc)res->m_eglGetProcAddress("eglQueryDevicesEXT");
-    //res->m_eglQueryDevicesEXT = (m_eglQueryDevicesEXTProc)dlsym(res->libegl, "eglQueryDevicesEXT");
-    if (!res->m_eglQueryDevicesEXT) {
-        PyErr_Format(PyExc_Exception, "eglQueryDevicesEXT not found");
-        return NULL;
-    }
-
-    res->m_eglGetPlatformDisplayEXT = (m_eglGetPlatformDisplayEXTProc)res->m_eglGetProcAddress("eglGetPlatformDisplayEXT");
-    if (!res->m_eglGetPlatformDisplayEXT) {
+    res->m_eglGetPlatformDisplay = (m_eglGetPlatformDisplayProc)res->m_eglGetProcAddress("eglGetPlatformDisplay");
+    if (!res->m_eglGetPlatformDisplay) {
         PyErr_Format(PyExc_Exception, "eglGetPlatformDisplayEXT not found");
         return NULL;
     }
 
     if (!strcmp(mode, "standalone")) {
         res->standalone = true;
+        EGLDeviceEXT device;
 
-        EGLint num_devices;
-        if (!res->m_eglQueryDevicesEXT(0, NULL, &num_devices)) {
-            PyErr_Format(PyExc_Exception, "eglQueryDevicesEXT failed (0x%x)", res->m_eglGetError());
-            return NULL;
+        // res->dpy = 
+
+        if (strstr(extensionString, "EGL_ANGLE_platform_angle"))
+        {
+            res->dpy = res->m_eglGetPlatformDisplay(EGL_PLATFORM_ANGLE_ANGLE,
+                                            (void *)(0),
+                                            NULL);
         }
-
-        if (device_index >= num_devices) {
-            PyErr_Format(PyExc_Exception, "requested device index %d, but found %d devices", device_index, num_devices);
-            return NULL;
-        }
-
-        EGLDeviceEXT* devices = (EGLDeviceEXT *)malloc(sizeof(EGLDeviceEXT) * num_devices);
-        if (!res->m_eglQueryDevicesEXT(num_devices, devices, &num_devices)) {
-            PyErr_Format(PyExc_Exception, "eglQueryDevicesEXT failed (0x%x)", res->m_eglGetError());
-            free(devices);
-            return NULL;
-        }
-        EGLDeviceEXT device = devices[device_index];
-        free(devices);
-
-        res->dpy = res->m_eglGetPlatformDisplayEXT(EGL_PLATFORM_DEVICE_EXT, device, 0);
+        // else
+        // {
+        //     mDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+        // }
+        // res->dpy = res->m_eglGetPlatformDisplay(EGL_PLATFORM_DEVICE_EXT, device, 0);
         if (res->dpy == EGL_NO_DISPLAY) {
             PyErr_Format(PyExc_Exception, "eglGetPlatformDisplayEXT failed (0x%x)", res->m_eglGetError());
             return NULL;
@@ -291,7 +300,7 @@ GLContext * meth_create_context(PyObject * self, PyObject * args, PyObject * kwa
             return NULL;
         }
 
-        if (!res->m_eglBindAPI(EGL_OPENGL_API)) {
+        if (!res->m_eglBindAPI(EGL_OPENGL_ES_API)) {
             PyErr_Format(PyExc_Exception, "eglBindAPI failed (0x%x)", res->m_eglGetError());
             return NULL;
         }
@@ -303,7 +312,7 @@ GLContext * meth_create_context(PyObject * self, PyObject * args, PyObject * kwa
             // EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE, 1,
             EGL_NONE,
         };
-
+        res->cfg = {EGL_NONE};
         res->ctx = res->m_eglCreateContext(res->dpy, res->cfg, EGL_NO_CONTEXT, ctxattribs);
         if (!res->ctx) {
             PyErr_Format(PyExc_Exception, "eglCreateContext failed (0x%x)", res->m_eglGetError());
