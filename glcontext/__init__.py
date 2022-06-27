@@ -47,6 +47,8 @@ def get_backend_by_name(name: str):
     """Request a specific backend by name"""
     if name == 'egl':
         return _egl()
+    elif name == 'angle':
+        return _angle()
 
     raise ValueError("Cannot find supported backend: '{}'".format(name))
 
@@ -118,6 +120,25 @@ def _egl():
         _apply_env_var(kwargs, 'libegl', 'GLCONTEXT_LINUX_LIBEGL')
         kwargs = _strip_kwargs(kwargs, ['glversion', 'mode', 'libgl', 'libegl', 'device_index'])
         return egl.create_context(**kwargs)
+
+    return create
+
+def _angle():
+    from glcontext import angle
+    from ctypes.util import find_library
+
+    def create(*args, **kwargs):
+        if not kwargs.get('libgl'):
+            kwargs['libgl'] = find_library('GL') 
+        if not kwargs.get('libegl'):
+            kwargs['libegl'] = find_library('EGL') 
+
+        _apply_env_var(kwargs, 'device_index', 'GLCONTEXT_DEVICE_INDEX', arg_type=int)
+        _apply_env_var(kwargs, 'glversion', 'GLCONTEXT_GLVERSION', arg_type=int)
+        _apply_env_var(kwargs, 'libgl', 'GLCONTEXT_LINUX_LIBGL')
+        _apply_env_var(kwargs, 'libegl', 'GLCONTEXT_LINUX_LIBEGL')
+        kwargs = _strip_kwargs(kwargs, ['glversion', 'mode', 'libgl', 'libegl', 'device_index'])
+        return angle.create_context(**kwargs)
 
     return create
 

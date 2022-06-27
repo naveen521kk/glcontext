@@ -44,6 +44,13 @@ egl = Extension(
     libraries=['dl'],
 )
 
+angle = Extension(
+    name='glcontext.angle',
+    sources=['glcontext/angle.cpp'],
+    extra_compile_args=['-fpermissive'] if sys.platform != 'win32' else [],
+    libraries=['dl'] if sys.platform != 'win32' else ['user32', 'gdi32'],
+)
+
 darwin = Extension(
     name='glcontext.darwin',
     sources=['glcontext/darwin.cpp'],
@@ -52,9 +59,9 @@ darwin = Extension(
 )
 
 ext_modules = {
-    'windows': [wgl],
-    'linux': [x11, egl],
-    'darwin': [darwin],
+    'windows': [wgl, angle],
+    'linux': [x11, egl, angle],
+    'darwin': [darwin, angle],
 }
 
 setup(
